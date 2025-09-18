@@ -1,77 +1,189 @@
+import { db } from '../db';
+import { projectMembersTable, usersTable, projectsTable, tasksTable } from '../db/schema';
 import { type AddProjectMemberInput, type ProjectMember } from '../schema';
+import { eq, and } from 'drizzle-orm';
 
 // Add a member to a project
 export async function addProjectMember(input: AddProjectMemberInput): Promise<ProjectMember> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to:
-  // 1. Check if user has permission to add members (admin/manager/project admin)
-  // 2. Verify the user exists and is in the same organization
-  // 3. Check if user is not already a member of the project
-  // 4. Add user to project with specified role
-  // 5. Return created project membership
-  return {
-    id: Math.floor(Math.random() * 1000),
-    project_id: input.project_id,
-    user_id: input.user_id,
-    role: input.role,
-    created_at: new Date()
-  };
+  try {
+    // Verify the user exists and the project exists
+    const user = await db.select()
+      .from(usersTable)
+      .where(eq(usersTable.id, input.user_id))
+      .execute();
+
+    if (user.length === 0) {
+      throw new Error('User not found');
+    }
+
+    const project = await db.select()
+      .from(projectsTable)
+      .where(eq(projectsTable.id, input.project_id))
+      .execute();
+
+    if (project.length === 0) {
+      throw new Error('Project not found');
+    }
+
+    // Verify user is in the same organization as the project
+    if (user[0].organization_id !== project[0].organization_id) {
+      throw new Error('User must be in the same organization as the project');
+    }
+
+    // Check if user is not already a member of the project
+    const existingMember = await db.select()
+      .from(projectMembersTable)
+      .where(and(
+        eq(projectMembersTable.project_id, input.project_id),
+        eq(projectMembersTable.user_id, input.user_id)
+      ))
+      .execute();
+
+    if (existingMember.length > 0) {
+      throw new Error('User is already a member of this project');
+    }
+
+    // Add user to project with specified role
+    const result = await db.insert(projectMembersTable)
+      .values({
+        project_id: input.project_id,
+        user_id: input.user_id,
+        role: input.role
+      })
+      .returning()
+      .execute();
+
+    return result[0];
+  } catch (error) {
+    console.error('Add project member failed:', error);
+    throw error;
+  }
 }
 
 // Get all members of a project
 export async function getProjectMembers(projectId: number): Promise<ProjectMember[]> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to:
-  // 1. Check if user has access to the project
-  // 2. Fetch all members of the project with their roles
-  // 3. Include user details through relations
-  // 4. Return list of project members
-  return [];
+  try {
+    const result = await db.select()
+      .from(projectMembersTable)
+      .where(eq(projectMembersTable.project_id, projectId))
+      .execute();
+
+    return result;
+  } catch (error) {
+    console.error('Get project members failed:', error);
+    throw error;
+  }
 }
 
 // Update project member role
 export async function updateProjectMemberRole(projectId: number, userId: number, role: 'admin' | 'manager' | 'member' | 'viewer'): Promise<ProjectMember> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to:
-  // 1. Check if current user has permission to update roles (admin/manager/project admin)
-  // 2. Find the project membership
-  // 3. Update the role
-  // 4. Return updated project membership
-  return {
-    id: 1,
-    project_id: projectId,
-    user_id: userId,
-    role: role,
-    created_at: new Date()
-  };
+  try {
+    // Find the project membership
+    const existingMember = await db.select()
+      .from(projectMembersTable)
+      .where(and(
+        eq(projectMembersTable.project_id, projectId),
+        eq(projectMembersTable.user_id, userId)
+      ))
+      .execute();
+
+    if (existingMember.length === 0) {
+      throw new Error('Project membership not found');
+    }
+
+    // Update the role
+    const result = await db.update(projectMembersTable)
+      .set({ role: role })
+      .where(and(
+        eq(projectMembersTable.project_id, projectId),
+        eq(projectMembersTable.user_id, userId)
+      ))
+      .returning()
+      .execute();
+
+    return result[0];
+  } catch (error) {
+    console.error('Update project member role failed:', error);
+    throw error;
+  }
 }
 
 // Remove a member from a project
 export async function removeProjectMember(projectId: number, userId: number): Promise<boolean> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to:
-  // 1. Check if current user has permission to remove members (admin/manager/project admin)
-  // 2. Find the project membership
-  // 3. Unassign any tasks assigned to this user in the project
-  // 4. Delete the project membership
-  // 5. Return success boolean
-  return true;
+  try {
+    // Find the project membership
+    const existingMember = await db.select()
+      .from(projectMembersTable)
+      .where(and(
+        eq(projectMembersTable.project_id, projectId),
+        eq(projectMembersTable.user_id, userId)
+      ))
+      .execute();
+
+    if (existingMember.length === 0) {
+      throw new Error('Project membership not found');
+    }
+
+    // Unassign any tasks assigned to this user in the project
+    await db.update(tasksTable)
+      .set({ assignee_id: null })
+      .where(and(
+        eq(tasksTable.project_id, projectId),
+        eq(tasksTable.assignee_id, userId)
+      ))
+      .execute();
+
+    // Delete the project membership
+    await db.delete(projectMembersTable)
+      .where(and(
+        eq(projectMembersTable.project_id, projectId),
+        eq(projectMembersTable.user_id, userId)
+      ))
+      .execute();
+
+    return true;
+  } catch (error) {
+    console.error('Remove project member failed:', error);
+    throw error;
+  }
 }
 
 // Check if user is a member of a project
 export async function isProjectMember(projectId: number, userId: number): Promise<boolean> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to:
-  // 1. Check if user is a member of the specified project
-  // 2. Return boolean result
-  return false;
+  try {
+    const result = await db.select()
+      .from(projectMembersTable)
+      .where(and(
+        eq(projectMembersTable.project_id, projectId),
+        eq(projectMembersTable.user_id, userId)
+      ))
+      .execute();
+
+    return result.length > 0;
+  } catch (error) {
+    console.error('Check project member failed:', error);
+    throw error;
+  }
 }
 
 // Get user's role in a project
 export async function getUserProjectRole(projectId: number, userId: number): Promise<'admin' | 'manager' | 'member' | 'viewer' | null> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to:
-  // 1. Find user's membership in the project
-  // 2. Return their role or null if not a member
-  return null;
+  try {
+    const result = await db.select()
+      .from(projectMembersTable)
+      .where(and(
+        eq(projectMembersTable.project_id, projectId),
+        eq(projectMembersTable.user_id, userId)
+      ))
+      .execute();
+
+    if (result.length === 0) {
+      return null;
+    }
+
+    return result[0].role;
+  } catch (error) {
+    console.error('Get user project role failed:', error);
+    throw error;
+  }
 }
